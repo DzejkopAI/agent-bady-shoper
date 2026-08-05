@@ -1,0 +1,132 @@
+// ─────────────────────────────────────────────────────────────
+//  SCRAPING bady.pl  (deterministyczny — czysty DOM, bez Claude)
+// ─────────────────────────────────────────────────────────────
+import type { Page } from "playwright";
+import type { ProductImage, ScrapedProduct } from "./types.js";
+
+// 1) Lista URL-i produktów z kategorii Nowości.
+export async function getNowosciUrls(page: Page, nowosciUrl: string): Promise<string[]> {
+  await page.goto(nowosciUrl, { waitUntil: "domcontentloaded" });
+  const urls = await page.$$eval("a", (as) =>
+    Array.from(
+      new Set(
+        as
+          .map((a) => (a as HTMLAnchorElement).href)
+          .filter((h) => /\/nowosci\/.+\.html/.test(h))
+      )
+    )
+  );
+  return urls;
+}
+
+// 2) Szczegóły pojedynczego produktu + adresy WSZYSTKICH zdjęć (reguła 5).
+export async function scrapeProduct(page: Page, url: string): Promise<ScrapedProduct> {
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+
+  const data = await page.evaluate(() => {
+    const text = (el: Element | null) => (el?.textContent ?? "").trim();
+
+    // Nazwa
+    const name = text(document.querySelector("h1"));
+
+    // Pary label→wartość z górnej sekcji (Nr artykułu, EAN, Rozmiar, Tworzywo, Opakowanie…)
+    // TODO: dostrój selektory do realnego DOM (tu: skan całego <main> po etykietach).
+    const main = text(document.querySelector("main"));
+    const pick = (label: string) => {
+      const re = new RegExp(label + "\\s*:?\\s*\\n?\\s*([^\\n]+)", "i");
+      const m = main.match(re);
+      return m ? m[1].trim() : "";
+    };
+
+    const articleNo = pick("Nr artykułu");
+    const ean = pick("EAN");
+    const size = pick("Rozmiar");
+    const material = pick("Tworzywo");
+    const packaging = pick("Opakowanie");
+
+    // Opis produktu (akapit pod nagłówkiem "Opis produktu")
+    let descriptionRaw = "";
+    const heads = Array.from(document.querySelectorAll("h1,h2,h3,strong,b"));
+    const opisHead = heads.find((h) => /opis produktu/i.test(h.textContent || ""));
+    if (opisHead) {
+      let n = opisHead.parentElement?.nextElementSibling || opisHead.nextElementSibling;
+      const parts: string[] = [];
+      let guard = 0;
+      while (n && guard++ < 8) {
+        const t = (n.textContent || "").trim();
+        if (t && !/dane techniczne/i.test(t)) parts.push(t);
+        if (/dane techniczne/i.test(t)) break;
+        n = n.nextElementSibling;
+      }
+      descriptionRaw = parts.join("\n\n");
+    }
+
+    // Tabela "Dane techniczne" → obiekt {klucz: wartość}
+    const techSpecs: Record<string, string> = {};
+    document.querySelectorAll("table tr").forEach((tr) => {
+      const cells = tr.querySelectorAll("td,th");
+      if (cells.length >= 2) {
+        const k = (cells[0].textContent || "").trim();
+        const v = (cells[1].textContent || "").trim();
+        if (k) techSpecs[k] = v;
+      }
+    });
+
+    // Zdjęcia: z <img> zbieramy id produktu i id-ki zdjęć dodatkowych,
+    // a potem budujemy adresy w wariancie DUŻYM (potwierdzone w PoC).
+    const srcs = Array.from(document.querySelectorAll("img"))
+      .map((i) => (i as HTMLImageElement).src)
+      .filter((s) => /files\/(fotos|fotob|fotom|foto_add)/i.test(s));
+
+    const productId = (srcs.find((s) => /product-(\d+)/.test(s)) || "").match(/product-(\d+)/)?.[1];
+    const addIds = Array.from(
+      new Set(srcs.map((s) => s.match(/foto_add-(\d+)/)?.[1]).filter(Boolean) as string[])
+    );
+
+    const base = "https://www.bady.pl/files";
+    const imageUrls: string[] = [];
+    if (productId) imageUrls.push(`${base}/fotob/product-${productId}.jpg`); // główne (big)
+    for (const id of addIds) imageUrls.push(`${base}/foto_add_big/foto_add-${id}.jpg`); // dodatkowe (big)
+
+    return {
+      name,
+      articleNo,
+      ean,
+      size,
+      material,
+      packaging,
+      descriptionRaw,
+      techSpecs,
+      mainImageUrl: imageUrls[0] ?? "",
+      imageUrls,
+    };
+  });
+
+  return { url, ...data };
+}
+
+// 3) Pobranie bajtów zdjęć. page.request działa w kontekście przeglądarki,
+//    więc bez problemów z CORS/egress (inaczej niż w sandboxie PoC).
+export async function downloadImages(page: Page, product: ScrapedProduct): Promise<ProductImage[]> {
+  const out: ProductImage[] = [];
+  let i = 1;
+  for (const url of product.imageUrls) {
+    const resp = await page.request.get(url);
+    if (!resp.ok()) continue;
+    const buffer = Buffer.from(await resp.body());
+    const filename = `${slug(product.name)}-${String(i).padStart(2, "0")}.jpg`;
+    out.push({ url, filename, buffer });
+    i++;
+  }
+  return out;
+}
+
+function slug(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 40);
+}
