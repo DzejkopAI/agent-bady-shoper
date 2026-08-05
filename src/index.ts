@@ -50,9 +50,18 @@ async function main() {
       const id = await addProduct(page, product, copy, category, images);
       console.log(`✓ dodano ID ${id}: ${product.name}  [${category}]`);
 
-      // 6) OPISY ZDJĘĆ (SEO + dostępność) w galerii
-      await fillGalleryDescriptions(page, id, imageCopies);
-      console.log(`  ✓ opisy ${imageCopies.length} zdjęć uzupełnione`);
+      // 6) OPISY ZDJĘĆ (SEO + dostępność) w galerii — best-effort,
+      //    nie przerywa runu jeśli coś w galerii się nie zgadza.
+      if (id) {
+        try {
+          await fillGalleryDescriptions(page, id, imageCopies);
+          console.log(`  ✓ opisy ${imageCopies.length} zdjęć uzupełnione`);
+        } catch (e) {
+          console.warn(`  ! opisy zdjęć pominięte (${(e as Error).message}) — produkt i tak dodany`);
+        }
+      } else {
+        console.warn("  ! nie odczytano ID produktu — opisy zdjęć pominięte");
+      }
 
       added++;
     }

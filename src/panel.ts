@@ -1,41 +1,46 @@
 // ─────────────────────────────────────────────────────────────
 //  PANEL Shoper — ręce agenta (Playwright).
-//  UWAGA: selektory oznaczone TODO trzeba potwierdzić na żywym panelu
-//  (użyj `npx playwright codegen <adres>` żeby je nagrać).
-//  Wnioski z PoC: nie zmieniać rozmiaru okna; czekać na network-idle;
-//  formularz wypełniać po kolei.
+//  Selektory potwierdzone na żywym panelu (2026-08-05).
+//  Wnioski z PoC: SPA bywa wolne → używamy domcontentloaded + jawnych
+//  waitFor na kluczowe elementy zamiast networkidle (które potrafi wisieć).
 // ─────────────────────────────────────────────────────────────
 import type { Page } from "playwright";
 import { CFG } from "./config.js";
 import type { GeneratedCopy, ImageCopy, ProductImage, ScrapedProduct } from "./types.js";
 
-// ── Logowanie do panelu ───────────────────────────────────────
+// ── Logowanie ─────────────────────────────────────────────────
 export async function login(page: Page): Promise<void> {
-  await page.goto(CFG.adminUrl, { waitUntil: "networkidle" });
-  // Jeśli już zalogowany (cookie/sesja), pomiń.
-  if (page.url().includes("/dashboard") || (await page.getByText("Pulpit").count()) > 0) return;
+  await page.goto(`${CFG.adminUrl}/auth/login`, { waitUntil: "domcontentloaded" });
 
-  // TODO: potwierdź selektory pól logowania
-  await page.getByLabel(/login|e-?mail/i).fill(CFG.login);
-  await page.getByLabel(/hasło|password/i).fill(CFG.password);
-  await page.getByRole("button", { name: /zaloguj/i }).click();
-  await page.waitForLoadState("networkidle");
-  // Jeśli tu wyskoczy 2FA/CAPTCHA — agent musi się zatrzymać (patrz README).
+  const loginField = page.locator('input[name="login"]');
+  if ((await loginField.count()) === 0) return; // już zalogowany
+
+  await loginField.fill(CFG.login);
+  await page.locator('input[name="password"]').fill(CFG.password);
+  await page.locator('button[type="submit"]').click();
+
+  await page.waitForLoadState("domcontentloaded");
+  await page.waitForURL((u) => !u.href.includes("/auth/login"), { timeout: 30000 }).catch(() => {});
+  // Jeśli tu byłoby 2FA/CAPTCHA — agent utknie; wtedy przejdź na storageState (README).
 }
 
-// ── Deduplikacja (reguła 2): czy produkt już jest w sklepie? ──
-export async function productExists(page: Page, phrase: string): Promise<boolean> {
-  await page.goto(`${CFG.adminUrl}/stock/list`, { waitUntil: "networkidle" });
-  const search = page.getByPlaceholder(/szukaj produktu/i); // TODO potwierdź
-  await search.fill(phrase);
+// ── Deduplikacja (reguła 2) ───────────────────────────────────
+export async function productExists(page: Page, name: string): Promise<boolean> {
+  await page.goto(`${CFG.adminUrl}/stock/list`, { waitUntil: "domcontentloaded" });
+  const search = page.getByPlaceholder(/szukaj produktu/i);
+  await search.waitFor({ state: "visible", timeout: 15000 });
+  await search.fill(name);
   await search.press("Enter");
-  await page.waitForLoadState("networkidle");
-  const foundText = await page.getByText(/znaleziono\s+\d+\s+wynik/i).textContent().catch(() => "");
-  const n = Number((foundText || "").match(/(\d+)/)?.[1] ?? "0");
-  return n > 0;
+  await page.waitForTimeout(1500);
+
+  const body = await page.locator("body").innerText();
+  if (/nie znaleziono/i.test(body)) return false;
+  const m = body.match(/znaleziono\s+(\d+)\s+wynik/i);
+  if (m) return Number(m[1]) > 0;
+  return (await page.locator("table tbody tr").count()) > 0;
 }
 
-// ── Dodanie produktu (reguły 3,4,7,8,9) → zwraca ID produktu ──
+// ── Dodanie produktu (reguły 3,4,7,8,9) → zwraca ID ──────────
 export async function addProduct(
   page: Page,
   p: ScrapedProduct,
@@ -43,109 +48,112 @@ export async function addProduct(
   category: string,
   images: ProductImage[]
 ): Promise<string> {
-  await page.goto(`${CFG.adminUrl}/products/add`, { waitUntil: "networkidle" });
+  await page.goto(`${CFG.adminUrl}/products/add`, { waitUntil: "domcontentloaded" });
+  await page.locator("#name").waitFor({ state: "visible", timeout: 20000 });
 
-  // Nazwa
-  await page.getByLabel("Nazwa", { exact: false }).fill(p.name);
-
-  // Kod produktu = "BD " + numer artykułu (reguła 3) — nadpisujemy auto-kod
-  const code = page.getByLabel("Kod produktu", { exact: false });
-  await code.fill("");
-  await code.fill(`${CFG.codePrefix}${p.articleNo}`);
-
-  // Producent (reguła 4) — dropdown z wyszukiwaniem
-  await selectFromCombo(page, /producent/i, CFG.producer);
-
-  // Aktywność OFF (reguła 8) — toggle domyślnie ON
-  const active = page.getByRole("switch", { name: /aktywność/i }); // TODO potwierdź rolę
-  if ((await active.getAttribute("aria-checked")) === "true") await active.click();
-
-  // Waga (z danych technicznych, jeśli są; format polski z przecinkiem)
+  // Pola tekstowe po stabilnych id
+  await page.locator("#name").fill(p.name);
+  await page.locator("#code").fill(`${CFG.codePrefix}${p.articleNo}`); // reguła 3: "BD ..."
   const weight = wagaKg(p);
-  if (weight) await page.getByLabel("Waga", { exact: false }).fill(weight);
+  if (weight) await page.locator("#weight").fill(weight);
+  await page.locator("#price").fill(CFG.placeholderPrice); // reguła 9: placeholder > 0
 
-  // Cena — placeholder > 0 (reguła 9)
-  await page.getByLabel(/cena/i).first().fill(CFG.placeholderPrice); // TODO potwierdź selektor pola ceny
+  // Producent (reguła 4) i Kategoria — rozwijane z wyszukiwaniem
+  await pickCombo(page, "producer", CFG.producer);
+  await pickCombo(page, "category", category);
 
-  // Kategoria główna — dropdown z wyszukiwaniem
-  await selectFromCombo(page, /kategoria główna/i, category);
+  // Aktywność OFF (reguła 8) — klik natywnego checkboxa przez JS (pewne, niezależne od stylu)
+  await page.evaluate((wanted) => {
+    const cb = document.getElementById("active") as HTMLInputElement | null;
+    if (cb && cb.checked !== wanted) cb.click();
+  }, CFG.activeOnAdd);
 
-  // Opisy — tryb HTML ("wyłącz edytor") i wklejenie gotowego HTML (reguła 7)
-  await fillHtmlEditor(page, "Krótki opis produktu", copy.shortDescriptionHtml);
-  await fillHtmlEditor(page, "Opis produktu", copy.descriptionHtml);
+  // Opisy (reguła 7) — przez API TinyMCE (bez klikania „wyłącz edytor")
+  await setTinyMce(page, "tinymce-content", copy.descriptionHtml);
+  await setTinyMce(page, "tinymce-short-content", copy.shortDescriptionHtml);
 
-  // Galeria — upload wszystkich zdjęć (reguła 5)
-  const fileInput = page.locator('input[type="file"]').first(); // TODO potwierdź, że to input galerii
-  await fileInput.setInputFiles(
+  // Galeria — wszystkie zdjęcia naraz (reguła 5). Input jest ukryty; setInputFiles działa.
+  await page.locator('input[type="file"]').first().setInputFiles(
     images.map((im) => ({ name: im.filename, mimeType: "image/jpeg", buffer: im.buffer }))
   );
-  await page.waitForLoadState("networkidle");
+  // poczekaj aż miniatury się pojawią (upload xhr)
+  await page.waitForTimeout(1500 + images.length * 500);
 
-  // Zapis → powrót na listę
-  await page.getByRole("button", { name: /zapisz i wróć do listy/i }).click();
-  await page.waitForLoadState("networkidle");
+  // Zapis i powrót na listę
+  await page.getByRole("button", { name: "Zapisz i wróć do listy" }).click();
+  await page.waitForURL(/\/stock\/list|\/stock($|\?)/, { timeout: 30000 }).catch(() => {});
+  await page.waitForTimeout(1500);
 
-  // Odczyt ID nowego produktu (pierwszy wiersz listy po zapisie)
-  const idText = await page.locator("table tbody tr").first().locator("td").first().textContent();
-  return (idText || "").trim();
+  // ID nowego produktu = pierwszy wiersz listy
+  const rowText = await page.locator("table tbody tr").first().innerText().catch(() => "");
+  const id = (rowText.match(/\b(\d{3,})\b/) || [])[1] || "";
+  return id;
 }
 
-// ── Opisy zdjęć w galerii: Opis (SEO) + Opis (dostępność) ─────
-//  (widok edycji produktu → zakładka Galeria → edycja inline komórek)
+// ── Opisy zdjęć: Opis (SEO) + Opis (dostępność) — best-effort ─
 export async function fillGalleryDescriptions(
   page: Page,
   productId: string,
   imageCopies: ImageCopy[]
 ): Promise<void> {
-  await page.goto(`${CFG.adminUrl}/products/edit/id/${productId}`, { waitUntil: "networkidle" });
-  await page.getByRole("link", { name: /galeria/i }).click(); // zakładka
-  await page.waitForLoadState("networkidle");
+  await page.goto(`${CFG.adminUrl}/products/edit/id/${productId}`, { waitUntil: "domcontentloaded" });
+  await page.getByRole("link", { name: /galeria/i }).click();
+  await page.waitForTimeout(1500);
+
+  const headers = await page.locator("table thead th").allTextContents();
+  const seoCol = headers.findIndex((h) => /opis \(seo\)/i.test(h));
+  const altCol = headers.findIndex((h) => /opis \(dost/i.test(h));
+  if (seoCol < 0 || altCol < 0) throw new Error("Nie znaleziono kolumn opisów w galerii");
 
   const rows = page.locator("table tbody tr");
   const count = Math.min(await rows.count(), imageCopies.length);
   for (let i = 0; i < count; i++) {
-    const row = rows.nth(i);
-    // TODO: potwierdź indeksy kolumn "Opis (SEO)" i "Opis (dostępność)".
-    await editInlineCell(page, row, "Opis (SEO)", imageCopies[i].seo);
-    await editInlineCell(page, row, "Opis (dostępność)", imageCopies[i].alt);
+    await editInlineCell(page, rows.nth(i), seoCol, imageCopies[i].seo);
+    await editInlineCell(page, rows.nth(i), altCol, imageCopies[i].alt);
   }
 }
 
 // ── Helpery ───────────────────────────────────────────────────
 
-// Dropdown-wyszukiwarka: klik, wpisz frazę, kliknij pasującą opcję.
-async function selectFromCombo(page: Page, label: RegExp, value: string) {
-  const combo = page.getByText(label).locator("xpath=following::*[self::input or self::button][1]");
-  await combo.click();
-  await page.keyboard.type(value.slice(0, 8));
-  await page.getByRole("option", { name: value }).first().click().catch(async () => {
-    await page.getByText(value, { exact: true }).first().click();
-  });
+// Rozwijana lista z wyszukiwaniem (Producent / Kategoria).
+async function pickCombo(page: Page, inputId: string, value: string): Promise<void> {
+  const input = page.locator(`#${inputId}`);
+  await input.scrollIntoViewIfNeeded();
+  await input.click();
+  await page.keyboard.type(value, { delay: 30 });
+  await page.waitForTimeout(600);
+  // kliknij opcję o dokładnym tekscie (ostatnia — pod polem, nie w innym miejscu strony)
+  const option = page.getByText(value, { exact: true }).last();
+  await option.waitFor({ state: "visible", timeout: 6000 });
+  await option.click();
 }
 
-// Edytor TinyMCE: przełącz na tryb HTML ("wyłącz edytor"), wklej HTML.
-async function fillHtmlEditor(page: Page, sectionLabel: string, html: string) {
-  const section = page.locator(`text=${sectionLabel}`).locator("xpath=ancestor::*[1]");
-  await section.getByText(/wyłącz edytor/i).click();
-  const textarea = section.locator("textarea").first();
-  await textarea.fill(html);
-  await section.getByText(/włącz edytor/i).click(); // sparsuj HTML z powrotem
+// Ustaw treść edytora TinyMCE i zsynchronizuj do textarea (bez trybu HTML w UI).
+async function setTinyMce(page: Page, editorId: string, html: string): Promise<void> {
+  await page.evaluate(
+    ({ id, content }) => {
+      const tm = (window as any).tinymce;
+      const ed = tm && tm.get(id);
+      if (ed) {
+        ed.setContent(content);
+        ed.save(); // zapis do <textarea>, żeby formularz go wysłał
+      }
+    },
+    { id: editorId, content: html }
+  );
 }
 
-// Inline edycja komórki tabeli galerii.
-async function editInlineCell(page: Page, row: any, columnLabel: string, value: string) {
-  // Klik w komórkę otwiera textarea + przycisk "Zapisz".
-  const headers = await page.locator("table thead th").allTextContents();
-  const colIdx = headers.findIndex((h) => h.includes(columnLabel));
-  if (colIdx < 0) return;
+// Edycja inline komórki galerii (klik → textarea → Zapisz).
+async function editInlineCell(page: Page, row: any, colIdx: number, value: string): Promise<void> {
   await row.locator("td").nth(colIdx).click();
   const editor = page.locator("textarea:visible").last();
+  await editor.waitFor({ state: "visible", timeout: 5000 });
   await editor.fill(value);
   await page.getByRole("button", { name: /^zapisz$/i }).click();
-  await page.waitForTimeout(400); // zapis per-komórka
+  await page.waitForTimeout(500);
 }
 
-// Waga w kg z formatem polskim (przecinek). Szuka "waga [g]" w danych technicznych.
+// Waga w kg (przecinek) z „waga [g]" w danych technicznych.
 function wagaKg(p: ScrapedProduct): string | null {
   const g = Object.entries(p.techSpecs).find(([k]) => /waga/i.test(k))?.[1];
   const grams = Number((g || "").replace(/[^\d]/g, ""));
