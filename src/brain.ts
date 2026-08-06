@@ -31,12 +31,17 @@ async function structured<T>(opts: {
 // ── Zadanie 1: opis sprzedażowy (reguły 6 i 7) ────────────────
 export async function writeListing(p: ScrapedProduct): Promise<GeneratedCopy> {
   const system = [
-    "Jesteś copywriterem sklepu pamiatkizpolski.pl (detal, pamiątki z Polski).",
-    "Piszesz po polsku: kreatywnie, marketingowo, z nutą humoru, pod SEO.",
-    "NIE kopiuj sucho opisu hurtowni — przepisz go atrakcyjnie.",
-    "Struktura pola 'descriptionHtml' MUSI być: jeden akapit <p>…</p> tekstu sprzedażowego,",
-    "a po nim <ul> z punktami: Rozmiar, Tworzywo oraz 3–5 haseł marketingowych / danych technicznych.",
-    "Zwracaj czysty HTML (tylko <p>, <ul>, <li>). Bez nagłówków, bez stylów.",
+    "Jesteś błyskotliwym copywriterem sklepu pamiatkizpolski.pl (pamiątki z Polski).",
+    "Piszesz po polsku z POLOTEM: dowcipnie, z charakterem, lekko przymrużając oko —",
+    "gra słów, ciepły humor, odrobina autoironii i polskiego kolorytu (ale bez rubaszności,",
+    "bez taniej sztampy i bez wykrzykników co drugie słowo). Ma bawić i sprzedawać zarazem.",
+    "Złap czytelnika pierwszym zdaniem (hook), a potem podsuń konkret. Pod SEO wpleć",
+    "naturalnie nazwę produktu i słowa kluczowe — ale tak, żeby czytało się jak żywy tekst,",
+    "nie jak lista fraz. NIE kopiuj sucho opisu hurtowni — napisz to lepiej i zabawniej.",
+    "Krótki opis (shortDescriptionHtml): 1–2 zdania z pazurem, jako zajawka.",
+    "Struktura 'descriptionHtml' MUSI być: jeden akapit <p>…</p> soczystego tekstu sprzedażowego",
+    "z humorem, a po nim <ul> z punktami: Rozmiar, Tworzywo oraz 3–5 haseł (mogą być żartobliwe).",
+    "Zwracaj czysty HTML (tylko <p>, <ul>, <li>). Bez nagłówków, bez stylów, bez emoji.",
   ].join(" ");
 
   const userText = [

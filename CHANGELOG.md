@@ -3,6 +3,10 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 1.0.1 — 2026-08-06
+- **EAN scrapowany i czyszczony** — bady podaje EAN ze spacjami („590 17208 2152 2"); `scrape.ts` czyści do samych cyfr (`5901720821522`), dzięki czemu `POST /products` ustawia `ean` poprawnie. (Produkty z ery browsera nie miały EAN — panel.ts go nie wpisywał.)
+- **Opisy z większym polotem** — prompt `writeListing` w `brain.ts` podkręcony: dowcip, gra słów, hook w pierwszym zdaniu, żartobliwe punkty — przy zachowaniu struktury `<p>`+`<ul>` i SEO (bez emoji/wykrzykników na siłę).
+
 ## 1.0.0 — 2026-08-06
 - **Rdzeń gotowy.** Agent w pełni działa produkcyjnie: scrape bady.pl (headless) → wykluczenia →
   dedup (API, dokładny) → Claude (opis + opisy zdjęć + kategoria) → `POST /products` (nieaktywny) →

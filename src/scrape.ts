@@ -39,7 +39,8 @@ export async function scrapeProduct(page: Page, url: string): Promise<ScrapedPro
     };
 
     const articleNo = pick("Nr artykułu");
-    const ean = pick("EAN");
+    // EAN na bady bywa ze spacjami („590 17208 2152 2") — Shoper chce samych cyfr.
+    const ean = pick("EAN").replace(/[^0-9]/g, "");
     const size = pick("Rozmiar");
     const material = pick("Tworzywo");
     const packaging = pick("Opakowanie");
