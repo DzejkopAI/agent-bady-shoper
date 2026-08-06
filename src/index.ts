@@ -37,6 +37,14 @@ async function main() {
         const product = await scrapeProduct(page, url);
         if (!product.name || !product.articleNo) continue;
 
+        // 1b) WYKLUCZENIA — np. „personalizowany" (półprodukt do znakowania).
+        const lname = product.name.toLowerCase();
+        const hit = CFG.excludeNameContains.find((x) => lname.includes(x));
+        if (hit) {
+          console.log(`↷ pomijam (wykluczone „${hit}"): ${product.name}`);
+          continue;
+        }
+
         // 2) DEDUP (reguła 2) — po kodzie `BD <nr>` (padding), przez API (dokładnie).
         const code = productCode(product.articleNo);
         if (await productExists(code)) {

@@ -3,6 +3,10 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 0.3.1 — 2026-08-06
+- **Kategorie dopasowane do REALNYCH nazw sklepu** (z `GET /categories`, 52 kat.) — `CATEGORY_MAP` (wartości = dokładne nazwy: Magnesy, Szkło/Ceramika, Kule Śniegowe, Statuetki, Dzwonki, Długopisy, Smycze, Pluszaki, Ręczniki, Łyżeczki pamiątkowe, Naparstki, Zapalniczki, Flagi, Aniołki, Naklejki, Monety, Zegary, Pocztówki, Naszywki, Koszulki, Torby, Breloki, Przypinki) i `SHOP_CATEGORIES` (tylko istniejące, jednoznaczne kategorie główne). „Kubki"/„Papiernicze" usunięte (nie istnieją). Zweryfikowane: wszystkie 24 nazwy mapują się na id (zero fallbacku).
+- **Wykluczenie „personalizowany"** — produkty bady z tą frazą w nazwie NIE trafiają do sklepu (półprodukt do znakowania, nie towar gotowy). Konfigurowalne: `EXCLUDE_NAME_CONTAINS` (lista po przecinku, domyślnie `personalizowan`). Egzekwowane w `index.ts` zaraz po scrape.
+
 ## 0.3.0 — 2026-08-06
 - **PIVOT: „ręce" po stronie sklepu przez Shoper REST API** zamiast klikania panelu. Determinizm, koniec z SPA/2FA/CDP/selektorami. `scrape.ts` i `brain.ts` bez zmian; `panel.ts`/`browser.ts` zostają jako legacy/referencja.
 - Nowy `src/shoper.ts`: auth Bearer (token z `.env`, fallback login+hasło → `/webapi/rest/auth`), retry/backoff (429/5xx/sieć), `testConnection`, `productExists`, `resolveCategoryId`, `createProduct`, `addImages`, `deleteProduct`.

@@ -25,6 +25,14 @@ export const CFG = {
   // Reguła 2: deduplikacja — ile produktów na raz, żeby nie zasypać sklepu
   maxProducts: Number(process.env.MAX_PRODUCTS ?? 3),
 
+  // Wykluczenia: NIE dodawaj do sklepu produktów, których nazwa zawiera którąś
+  // z tych fraz (lowercase). „personalizowany" = półprodukt do znakowania, nie
+  // towar gotowy — nie chcemy go na pamiatkizpolski.pl. Rozdzielane przecinkiem.
+  excludeNameContains: (process.env.EXCLUDE_NAME_CONTAINS ?? "personalizowan")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
+
   // Panel
   adminUrl: process.env.SHOPER_ADMIN_URL!,
   login: process.env.SHOPER_LOGIN!,
@@ -75,37 +83,100 @@ export function productCode(articleNo: string): string {
 // Mapowanie kategorii bady → kategoria główna w sklepie.
 // Klucz = fraza z nazwy/kategorii bady (lowercase), wartość = nazwa kategorii w Shoperze.
 // Jeśli nic nie pasuje, agent spyta Claude (patrz brain.mapCategory).
+// WARTOŚCI muszą być DOKŁADNYMI nazwami kategorii w sklepie (potwierdzone
+// przez GET /categories, 2026-08-06) — inaczej createProduct spadnie na fallback.
 export const CATEGORY_MAP: Record<string, string> = {
+  // Kule Śniegowe
   "kula śnieżna": "Kule Śniegowe",
   "kula sniezna": "Kule Śniegowe",
+  kula: "Kule Śniegowe",
   "słoik": "Kule Śniegowe",
+  // Magnesy
   magnes: "Magnesy",
+  // Breloki
   brelok: "Breloki",
+  // Przypinki
   przypink: "Przypinki",
-  kubek: "Kubki",
-  koszulk: "Koszulki",
-  torb: "Torby",
-  statuetk: "Statuetki",
-  świeczk: "Szkło/Ceramika",
+  // Szkło / Ceramika (kubki, kieliszki, świeczki, ceramika)
+  kubek: "Szkło/Ceramika",
+  kubk: "Szkło/Ceramika",
   kieliszek: "Szkło/Ceramika",
-  szkło: "Szkło/Ceramika",
+  "świeczk": "Szkło/Ceramika",
+  swieczk: "Szkło/Ceramika",
+  "szkło": "Szkło/Ceramika",
   ceramik: "Szkło/Ceramika",
+  // Statuetki
+  statuetk: "Statuetki",
+  // Koszulki
+  koszulk: "Koszulki",
+  // Torby
+  torb: "Torby",
+  // Naszywki (naprasowanki/hafty)
+  naszywk: "Naszywki",
+  naprasowank: "Naszywki",
+  // Dzwonki
+  dzwonek: "Dzwonki",
+  dzwonk: "Dzwonki",
+  // Długopisy
+  "długopis": "Długopisy",
+  dlugopis: "Długopisy",
+  // Smycze
+  smycz: "Smycze",
+  // Pocztówki
+  "pocztówk": "Pocztówki",
+  pocztowk: "Pocztówki",
+  // Naklejki
+  naklejk: "Naklejki",
+  // Monety
+  monet: "Monety",
+  // Zegary
+  zegar: "Zegary",
+  // Pluszaki
+  pluszak: "Pluszaki",
+  // Ręczniki
+  "ręcznik": "Ręczniki",
+  recznik: "Ręczniki",
+  // Łyżeczki
+  "łyżeczk": "Łyżeczki pamiątkowe",
+  lyzeczk: "Łyżeczki pamiątkowe",
+  // Naparstki
+  naparstek: "Naparstki",
+  naparstk: "Naparstki",
+  // Zapalniczki
+  zapalniczk: "Zapalniczki",
+  // Flagi
+  flaga: "Flagi",
+  // Aniołki
+  "aniołek": "Aniołki",
+  aniolek: "Aniołki",
 };
 
-// Lista kategorii sklepu (fallback dla Claude, gdy mapa nie trafi).
-// Docelowo można ją pobrać dynamicznie z /admin/categories.
+// Lista kategorii sklepu (fallback dla Claude, gdy mapa nie trafi) — tylko
+// realne, jednoznaczne kategorie główne (z GET /categories). Bez dwuznacznych
+// podkategorii („Metalowe" itp.). „Pozostałe" = ostatnia deska ratunku.
 export const SHOP_CATEGORIES = [
+  "Przypinki",
   "Breloki",
   "Magnesy",
-  "Przypinki",
-  "Papiernicze",
-  "Dzwonki",
+  "Kule Śniegowe",
   "Szkło/Ceramika",
   "Statuetki",
-  "Kule Śniegowe",
-  "Torby",
   "Koszulki",
+  "Torby",
   "Naszywki",
-  "Kubki",
+  "Dzwonki",
+  "Długopisy",
+  "Smycze",
+  "Pocztówki",
+  "Naklejki",
+  "Monety",
+  "Zegary",
+  "Pluszaki",
+  "Ręczniki",
+  "Łyżeczki pamiątkowe",
+  "Naparstki",
+  "Zapalniczki",
+  "Flagi",
+  "Aniołki",
   "Pozostałe",
 ];

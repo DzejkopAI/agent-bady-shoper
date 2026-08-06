@@ -1,6 +1,6 @@
 {
   "name": "bady-agent",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "description": "Agent AI: scrapuje nowości z bady.pl i dodaje je jako produkty (nieaktywne) do panelu Shoper pamiatkizpolski.pl. Playwright = ręce, Claude = mózg.",
