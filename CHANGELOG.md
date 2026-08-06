@@ -3,6 +3,17 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 1.0.0 — 2026-08-06
+- **Rdzeń gotowy.** Agent w pełni działa produkcyjnie: scrape bady.pl (headless) → wykluczenia →
+  dedup (API, dokładny) → Claude (opis + opisy zdjęć + kategoria) → `POST /products` (nieaktywny) →
+  `POST /product-images` (base64 + opisy SEO/dostępność) → **e-mail „co dodałem"**. Nocne zadanie
+  `BadyAgent-Nightly` (Task Scheduler, 03:00). Zero 2FA/CDP/SPA/selektorów.
+- **Powiadomienia e-mail (SMTP)** — nowy `src/notify.ts` (nodemailer, STARTTLS+login, wzorzec z JD-PIM;
+  nigdy nie wywala runu). `index.ts` wysyła podsumowanie (tekst + HTML z linkami do edycji) **tylko gdy
+  coś dodano**. `npm run test-mail` do testu. Konfiguracja w `.env`: `MAIL_ENABLED`, `SMTP_*`, `MAIL_TO`
+  (poświadczenia współdzielone z PIM — konto stany-wapro@bady.pl). Potwierdzone: mail dochodzi.
+- `.env.example` uzupełniony o wszystkie realne zmienne (Shoper API, wykluczenia, SMTP); sekcja LEGACY oddzielona.
+
 ## 0.3.1 — 2026-08-06
 - **Kategorie dopasowane do REALNYCH nazw sklepu** (z `GET /categories`, 52 kat.) — `CATEGORY_MAP` (wartości = dokładne nazwy: Magnesy, Szkło/Ceramika, Kule Śniegowe, Statuetki, Dzwonki, Długopisy, Smycze, Pluszaki, Ręczniki, Łyżeczki pamiątkowe, Naparstki, Zapalniczki, Flagi, Aniołki, Naklejki, Monety, Zegary, Pocztówki, Naszywki, Koszulki, Torby, Breloki, Przypinki) i `SHOP_CATEGORIES` (tylko istniejące, jednoznaczne kategorie główne). „Kubki"/„Papiernicze" usunięte (nie istnieją). Zweryfikowane: wszystkie 24 nazwy mapują się na id (zero fallbacku).
 - **Wykluczenie „personalizowany"** — produkty bady z tą frazą w nazwie NIE trafiają do sklepu (półprodukt do znakowania, nie towar gotowy). Konfigurowalne: `EXCLUDE_NAME_CONTAINS` (lista po przecinku, domyślnie `personalizowan`). Egzekwowane w `index.ts` zaraz po scrape.

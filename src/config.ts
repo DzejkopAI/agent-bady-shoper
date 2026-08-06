@@ -65,6 +65,23 @@ export const CFG = {
   // (API wymaga category_id). Produkt i tak nieaktywny → ręczna rekategoryzacja.
   fallbackCategory: process.env.SHOPER_FALLBACK_CATEGORY ?? "Pozostałe",
 
+  // Powiadomienia e-mail (SMTP) — mail „co dodałem" po nocnym runie.
+  // Wzorzec z JD-PIM (powiadomienia.py). Dane w .env; te same poświadczenia
+  // co PIM (konto stany-wapro@bady.pl). MAIL_TO = odbiorcy po przecinku.
+  mail: {
+    enabled: (process.env.MAIL_ENABLED ?? "true") === "true",
+    host: process.env.SMTP_HOST ?? "",
+    port: Number(process.env.SMTP_PORT ?? 587),
+    tls: (process.env.SMTP_TLS ?? "true") === "true",
+    user: process.env.SMTP_USER ?? "",
+    pass: process.env.SMTP_PASS ?? "",
+    from: process.env.SMTP_FROM ?? process.env.SMTP_USER ?? "",
+    to: (process.env.MAIL_TO ?? "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+  },
+
   // Claude
   model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
 

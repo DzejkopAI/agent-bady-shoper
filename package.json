@@ -1,23 +1,26 @@
 {
   "name": "bady-agent",
-  "version": "0.3.1",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "Agent AI: scrapuje nowości z bady.pl i dodaje je jako produkty (nieaktywne) do panelu Shoper pamiatkizpolski.pl. Playwright = ręce, Claude = mózg.",
   "scripts": {
     "browser": "tsx src/browser.ts",
     "start": "tsx src/index.ts",
+    "test-mail": "tsx src/notify.ts --test",
     "once": "tsx src/index.ts --limit 1",
     "install-browser": "playwright install chromium"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.65.0",
     "dotenv": "^16.4.5",
+    "nodemailer": "^9.0.4",
     "playwright": "^1.48.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.1",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.6.0"
   }
 }

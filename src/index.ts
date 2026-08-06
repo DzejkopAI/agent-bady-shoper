@@ -8,6 +8,7 @@ import { CFG, productCode } from "./config.js";
 import { getNowosciUrls, scrapeProduct, downloadImages } from "./scrape.js";
 import { writeListing, writeImageTexts, mapCategory } from "./brain.js";
 import { testConnection, productExists, createProduct, addImages } from "./shoper.js";
+import { sendMail } from "./notify.js";
 
 async function main() {
   // Shoper — sprawdź API zanim ruszymy scraping (szybki fail przy złym tokenie).
@@ -28,6 +29,7 @@ async function main() {
     console.log(`Nowości na bady.pl: ${urls.length}`);
 
     let added = 0;
+    const addedItems: { code: string; name: string; id: string; category: string }[] = [];
     for (const url of urls) {
       if (added >= CFG.maxProducts) break;
 
@@ -67,6 +69,7 @@ async function main() {
         // 5) UTWÓRZ w Shoperze jako NIEAKTYWNY (reguły 3,4,7,8,9) — API
         const id = await createProduct(product, copy, category);
         console.log(`✓ utworzono ID ${id}: ${product.name}  [${category}]`);
+        addedItems.push({ code, name: product.name, id, category });
 
         // 6) ZDJĘCIA + OPISY (SEO=name, dostępność=description) — API
         try {
@@ -84,6 +87,25 @@ async function main() {
     }
 
     console.log(`\nGotowe. Dodano ${added} produktów (nieaktywnych, do weryfikacji).`);
+
+    // Powiadomienie e-mail — tylko gdy COŚ dodano (na życzenie: „mail jak coś doda").
+    if (addedItems.length) {
+      const linia = (p: (typeof addedItems)[number]) =>
+        `• ${p.code} — ${p.name} [${p.category}] (ID ${p.id})`;
+      const lista = addedItems.map(linia).join("\n");
+      const url = (p: (typeof addedItems)[number]) =>
+        `${CFG.apiBaseUrl}/admin/products/edit/id/${p.id}`;
+      const html =
+        `<p>Dodano <b>${addedItems.length}</b> produktów (nieaktywne, do weryfikacji):</p><ul>` +
+        addedItems.map((p) => `<li><a href="${url(p)}">${p.code} — ${p.name}</a> [${p.category}] (ID ${p.id})</li>`).join("") +
+        `</ul><p style="color:#888">Agent BADY→Shoper</p>`;
+      const res = await sendMail(
+        `Agent BADY→Shoper: dodano ${addedItems.length} nowości`,
+        `Dodano ${addedItems.length} produktów (nieaktywne, do weryfikacji):\n\n${lista}`,
+        html
+      );
+      console.log(res.ok ? `✉ ${res.info}` : `! ${res.info}`);
+    }
   } finally {
     await browser.close();
   }
