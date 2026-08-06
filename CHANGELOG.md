@@ -3,6 +3,12 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 0.2.1 — 2026-08-06
+- **Kod produktu: dopełnianie bazy numeru zerami do 4 cyfr** — sklep zapisuje 3-cyfrowe numery bady z zerem z przodu (bady `122-03` → `BD 0122-03`). Nowy `productCode()` w `config.ts` używany w dedupie i przy wpisie `#code` — naprawia fałszywe „nowe" i duplikaty wariantów (kieliszki).
+- **Izolacja błędów per produkt** — cała obróbka jednego produktu w `try/catch`; wyjątek (np. combo kategorii „Kubki") loguje się i przechodzi do następnego, zamiast ubijać cały nocny run.
+- `WINDOWS-VPS-SETUP.md` zaktualizowany o model **CDP** (`npm run browser`, sesja interaktywna, zależność nocnego zadania od otwartego okna).
+- Znane/do zrobienia: combo kategorii „Kubki" (nie klika opcji); **docelowo migracja „rąk" na Shoper REST API** (klikanie panelu jest łamliwe) — `brain.ts`/`scrape.ts` bez zmian.
+
 ## 0.2.0 — 2026-08-06
 - **Pełny przebieg E2E działa** — produkt dodawany jako nieaktywny **wraz z opisami zdjęć** (SEO + dostępność). Potwierdzone na żywym panelu (m.in. ID 5382, 5383).
 - **Sesja / logowanie (2FA):** `storageState`/cookies NIE działają (sesja Shopera to cookie sesyjne, którego Playwright nie utrwala między procesami, + 2FA). Rozwiązanie: **trwałe okno przeglądarki po CDP**.

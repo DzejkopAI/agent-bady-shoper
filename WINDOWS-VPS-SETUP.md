@@ -84,49 +84,70 @@ Skopiuj wzór i uzupełnij:
 copy .env.example .env
 notepad .env
 ```
-W `.env` wpisz: `ANTHROPIC_API_KEY`, `SHOPER_LOGIN`, `SHOPER_PASSWORD`,
-oraz `HEADFUL=false` (serwer nie ma pulpitu do pokazywania okna — chodzi w tle).
-Zostaw `MAX_PRODUCTS=3` na start.
+W `.env` wpisz: `ANTHROPIC_API_KEY`, `SHOPER_ADMIN_URL`, `SHOPER_LOGIN`,
+`SHOPER_PASSWORD`, `ANTHROPIC_MODEL`. Zostaw `MAX_PRODUCTS` na start małe (np. 3).
+
+> Uwaga: `HEADFUL` z wcześniejszej wersji **nie ma już znaczenia** — agent nie startuje
+> własnej przeglądarki, tylko podłącza się do trwałego okna (patrz następny krok, CDP).
+
+---
+
+## Krok 5.5 — logowanie: TRWAŁE OKNO PRZEGLĄDARKI (CDP) — WYMAGANE przez 2FA
+Shoper wymusza **dwuetapową weryfikację (2FA)**, a sesji **nie da się** zapisać do pliku
+(`storageState`/cookies) — sesja to cookie sesyjne, które ginie przy restarcie procesu.
+Rozwiązanie: **jedno okno przeglądarki działa na stałe**, a agent tylko się do niego podłącza.
+
+1. W sesji RDP (musisz widzieć pulpit) uruchom **trwałe okno**:
+   ```powershell
+   cd C:\APP-JD\bady-agent
+   npm run browser
+   ```
+   Otworzy się okno Chromium (profil `.auth-profile`, port debug **9222**).
+2. **Zaloguj się w nim do końca: login + hasło + kod 2FA z maila/SMS.** ZOSTAW okno otwarte.
+3. Od tej chwili każdy `npm start` / `npm run once` podłącza się do tego okna przez CDP
+   (`connectOverCDP` na `http://127.0.0.1:9222`) i **NIE** pyta ponownie o 2FA.
+
+> Kiedy trzeba powtórzyć logowanie? Po **restarcie VPSa** albo zamknięciu okna. Rozłączenie
+> RDP (bez wylogowania) jest OK — okno i sesja żyją dalej. Wylogowanie użytkownika zabija okno.
 
 ---
 
 ## Krok 6 — test ręczny (zanim włączysz harmonogram)
+Najpierw upewnij się, że okno z Kroku 5.5 jest otwarte i zalogowane. Potem:
 ```powershell
 npm run once
 ```
-To przetworzy **jeden** produkt. Obserwuj wypisywane logi. Częste potknięcia:
-- **selektory panelu** (`TODO` w `src/panel.ts`) — jeśli agent nie trafia w pole,
-  nagraj poprawne selektory: `npx playwright codegen https://sklep5452789.homesklep.pl/admin`;
-- **logowanie z 2FA/CAPTCHA** — jeśli panel tego wymaga, automatyczny login się potknie;
-  wtedy trzeba raz zapisać sesję (`storageState`) i ją wczytywać (napisz, dorobię).
-
-Jak `npm run once` przejdzie i produkt pojawi się w panelu jako nieaktywny — gotowe do harmonogramu.
+To przetworzy **jeden** produkt (podłączając się do okna CDP). Obserwuj logi.
+Jeśli zobaczysz `✗ Nie mogę podłączyć się do przeglądarki (...9222)` — uruchom `npm run browser`
+i zaloguj się (Krok 5.5). Jak produkt pojawi się w panelu jako nieaktywny — gotowe do harmonogramu.
 
 ---
 
 ## Krok 7 — harmonogram co noc (Task Scheduler)
-W repo jest `run.bat` — to on odpala agenta i zapisuje logi do `C:\bady-agent\logs`.
+W repo jest `run.bat` — odpala agenta (`npm start`) i zapisuje logi do `logs\`.
 
-Najprościej z PowerShella (administrator). Zadanie o **3:00**, działa nawet gdy nikt niezalogowany:
+> WAŻNE (model CDP): zadanie **musi** działać w **sesji interaktywnej** tego samego
+> użytkownika, w której otwarte jest okno `npm run browser` (Krok 5.5). Dlatego NIE używamy
+> „uruchom niezależnie od zalogowania” — przeciwnie, zadanie ma iść w interaktywnej sesji
+> (`LogonType Interactive`), żeby miało dostęp do żywego okna na `127.0.0.1:9222`.
+
+Utworzenie zadania (PowerShell jako administrator), codziennie o **3:00**:
 ```powershell
-schtasks /Create ^
-  /TN "BadyAgent" ^
-  /TR "C:\bady-agent\run.bat" ^
-  /SC DAILY /ST 03:00 ^
-  /RU "NAZWA_UZYTKOWNIKA" /RP "HASLO_UZYTKOWNIKA" ^
-  /RL HIGHEST /F
+$action = New-ScheduledTaskAction -Execute "C:\APP-JD\bady-agent\run.bat"
+$trigger = New-ScheduledTaskTrigger -Daily -At 3:00AM
+$principal = New-ScheduledTaskPrincipal -UserId "Administrator" -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName "BadyAgent-Nightly" -Action $action -Trigger $trigger `
+  -Principal $principal -Description "Agent BADY->Shoper (laczy sie z oknem CDP)" -Force
 ```
-(`/RU` i `/RP` = konto Windows, na którym zadanie ma działać — dzięki temu odpala się
-bez zalogowanej sesji.)
 
-Albo klikając: **Harmonogram zadań → Utwórz zadanie** → Wyzwalacze: codziennie 3:00 →
-Akcje: uruchom `C:\bady-agent\run.bat` → zaznacz „Uruchom niezależnie od tego, czy użytkownik jest zalogowany”.
-
-Test zadania od razu (bez czekania do nocy):
+Test zadania od razu (bez czekania do nocy) — okno CDP musi być otwarte i zalogowane:
 ```powershell
-schtasks /Run /TN "BadyAgent"
+Start-ScheduledTask -TaskName "BadyAgent-Nightly"
 ```
-Potem zajrzyj do `C:\bady-agent\logs\` — powinien być świeży log.
+Potem zajrzyj do `C:\APP-JD\bady-agent\logs\` — powinien być świeży log z dodanymi produktami.
+
+> Przypomnienie: przed nocnym runem (i po każdym restarcie VPSa) upewnij się, że okno
+> `npm run browser` jest uruchomione i zalogowane — inaczej `npm start` zgłosi brak połączenia CDP.
 
 ---
 
@@ -153,5 +174,6 @@ npm install
 3. RDP na serwer → zainstaluj Node + Git (Krok 2).
 4. `git clone` → `npm install` → `npx playwright install chromium` (Kroki 3–4).
 5. `.env` z sekretami (Krok 5).
-6. `npm run once` — test (Krok 6).
-7. Task Scheduler na 3:00 (Krok 7).
+6. `npm run browser` → zaloguj się raz z 2FA, zostaw okno otwarte (Krok 5.5 — WYMAGANE).
+7. `npm run once` — test (Krok 6).
+8. Task Scheduler na 3:00, sesja interaktywna (Krok 7).

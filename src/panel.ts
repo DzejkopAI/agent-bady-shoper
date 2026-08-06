@@ -5,7 +5,7 @@
 //  waitFor na kluczowe elementy zamiast networkidle (które potrafi wisieć).
 // ─────────────────────────────────────────────────────────────
 import type { Page } from "playwright";
-import { CFG } from "./config.js";
+import { CFG, productCode } from "./config.js";
 import type { GeneratedCopy, ImageCopy, ProductImage, ScrapedProduct } from "./types.js";
 
 // ── Logowanie ─────────────────────────────────────────────────
@@ -83,7 +83,7 @@ export async function addProduct(
 
   // Pola tekstowe po stabilnych id
   await page.locator("#name").fill(p.name);
-  await page.locator("#code").fill(`${CFG.codePrefix}${p.articleNo}`); // reguła 3: "BD ..."
+  await page.locator("#code").fill(productCode(p.articleNo)); // reguła 3: "BD ..." (+ zera)
   const weight = wagaKg(p);
   if (weight) await page.locator("#weight").fill(weight);
   await page.locator("#price").fill(CFG.placeholderPrice); // reguła 9: placeholder > 0
@@ -115,7 +115,7 @@ export async function addProduct(
   await page.waitForTimeout(1500);
 
   // ID nowego produktu — pewnie z listy: filtr po kodzie → href linku produktu.
-  return await productIdByCode(page, `${CFG.codePrefix}${p.articleNo}`);
+  return await productIdByCode(page, productCode(p.articleNo));
 }
 
 // Wpisz kod w filtr listy i poczekaj aż wyniki się przeładują.

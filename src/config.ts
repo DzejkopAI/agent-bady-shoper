@@ -46,6 +46,15 @@ export const CFG = {
   headful: (process.env.HEADFUL ?? "true") === "true",
 };
 
+// Kod produktu w sklepie: prefiks + numer artykułu, przy czym BAZĘ numeru
+// (część przed pierwszym „-") sklep dopełnia zerami z przodu do 4 cyfr.
+// Przykłady: bady „122-03" → „BD 0122-03"; „2575" → „BD 2575"; „2150-04" → „BD 2150-04".
+export function productCode(articleNo: string): string {
+  const m = String(articleNo).trim().match(/^(\d+)(.*)$/);
+  const padded = m ? (m[1].length < 4 ? m[1].padStart(4, "0") : m[1]) + m[2] : String(articleNo).trim();
+  return CFG.codePrefix + padded;
+}
+
 // Mapowanie kategorii bady → kategoria główna w sklepie.
 // Klucz = fraza z nazwy/kategorii bady (lowercase), wartość = nazwa kategorii w Shoperze.
 // Jeśli nic nie pasuje, agent spyta Claude (patrz brain.mapCategory).
