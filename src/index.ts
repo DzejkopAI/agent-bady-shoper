@@ -3,15 +3,36 @@
 //  Deterministyczny przepływ; Claude wywoływany tylko w brain.*
 // ─────────────────────────────────────────────────────────────
 import { chromium } from "playwright";
+import type { Browser, BrowserContext } from "playwright";
 import { CFG } from "./config.js";
 import { getNowosciUrls, scrapeProduct, downloadImages } from "./scrape.js";
 import { writeListing, writeImageTexts, mapCategory } from "./brain.js";
 import { login, productExists, addProduct, fillGalleryDescriptions } from "./panel.js";
 
 async function main() {
-  const browser = await chromium.launch({ headless: !CFG.headful });
-  const context = await browser.newContext();
-  const page = await context.newPage();
+  // Podłącz się do TRWAŁEGO okna z `npm run browser` (CDP). Tam żyje sesja
+  // Shopera po jednorazowym 2FA — nie startujemy własnej przeglądarki, więc
+  // nie ma powtórnego logowania/2FA.
+  let browser: Browser;
+  try {
+    browser = await chromium.connectOverCDP(CFG.cdpUrl);
+  } catch {
+    console.error(
+      `✗ Nie mogę podłączyć się do przeglądarki (${CFG.cdpUrl}).\n` +
+        "  Najpierw uruchom w osobnym terminalu: `npm run browser`, zaloguj się (raz, z 2FA)\n" +
+        "  i zostaw okno otwarte. Potem odpal `npm start` ponownie."
+    );
+    process.exit(1);
+  }
+
+  const context: BrowserContext = browser.contexts()[0] ?? (await browser.newContext());
+  const page = context.pages()[0] ?? (await context.newPage());
+
+  // Shim dla tsx/esbuild: `keepNames` owija nazwane funkcje wewnątrz
+  // page.evaluate w wywołanie __name(...), którego nie ma w przeglądarce.
+  // Wstrzykujemy trywialny odpowiednik (forma stringa — esbuild go nie ruszy)
+  // na każdą nawigację.
+  await page.addInitScript("globalThis.__name = globalThis.__name || ((fn) => fn);");
 
   try {
     await login(page);
@@ -28,9 +49,10 @@ async function main() {
       const product = await scrapeProduct(page, url);
       if (!product.name || !product.articleNo) continue;
 
-      // 2) DEDUP (reguła 2) — pomiń, jeśli już w sklepie
-      if (await productExists(page, product.name)) {
-        console.log(`↷ pomijam (jest w sklepie): ${product.name}`);
+      // 2) DEDUP (reguła 2) — pomiń, jeśli już w sklepie (po kodzie `BD <nr>`)
+      const code = `${CFG.codePrefix}${product.articleNo}`;
+      if (await productExists(page, code)) {
+        console.log(`↷ pomijam (jest w sklepie): ${code} — ${product.name}`);
         continue;
       }
 
@@ -52,15 +74,12 @@ async function main() {
 
       // 6) OPISY ZDJĘĆ (SEO + dostępność) w galerii — best-effort,
       //    nie przerywa runu jeśli coś w galerii się nie zgadza.
-      if (id) {
-        try {
-          await fillGalleryDescriptions(page, id, imageCopies);
-          console.log(`  ✓ opisy ${imageCopies.length} zdjęć uzupełnione`);
-        } catch (e) {
-          console.warn(`  ! opisy zdjęć pominięte (${(e as Error).message}) — produkt i tak dodany`);
-        }
-      } else {
-        console.warn("  ! nie odczytano ID produktu — opisy zdjęć pominięte");
+      //    Nawigacja po KODZIE (deep-link do edycji odbija na listę).
+      try {
+        await fillGalleryDescriptions(page, code, imageCopies);
+        console.log(`  ✓ opisy ${imageCopies.length} zdjęć uzupełnione`);
+      } catch (e) {
+        console.warn(`  ! opisy zdjęć pominięte (${(e as Error).message}) — produkt i tak dodany`);
       }
 
       added++;
@@ -68,11 +87,15 @@ async function main() {
 
     console.log(`\nGotowe. Dodano ${added} produktów (nieaktywnych, do weryfikacji).`);
   } finally {
-    await browser.close();
+    // NIE zamykamy okna — należy do `npm run browser` i ma żyć dalej.
+    // Nie wołamy browser.close() (mogłoby zamknąć okno); po prostu kończymy
+    // proces, co rozłącza połączenie CDP bez zabijania przeglądarki.
   }
 }
 
-main().catch((e) => {
-  console.error("Błąd agenta:", e);
-  process.exit(1);
-});
+main()
+  .then(() => process.exit(0))
+  .catch((e) => {
+    console.error("Błąd agenta:", e);
+    process.exit(1);
+  });

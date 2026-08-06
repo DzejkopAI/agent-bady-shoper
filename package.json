@@ -5,6 +5,7 @@
   "type": "module",
   "description": "Agent AI: scrapuje nowości z bady.pl i dodaje je jako produkty (nieaktywne) do panelu Shoper pamiatkizpolski.pl. Playwright = ręce, Claude = mózg.",
   "scripts": {
+    "browser": "tsx src/browser.ts",
     "start": "tsx src/index.ts",
     "once": "tsx src/index.ts --limit 1",
     "install-browser": "playwright install chromium"

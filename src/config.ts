@@ -30,6 +30,16 @@ export const CFG = {
   login: process.env.SHOPER_LOGIN!,
   password: process.env.SHOPER_PASSWORD!,
 
+  // Trwały profil przeglądarki (jak zwykły profil Chrome). Używany przez
+  // `npm run browser`, które startuje JEDNO okno na stałe z portem debug.
+  authProfileDir: process.env.AUTH_PROFILE_DIR ?? ".auth-profile",
+
+  // CDP: agent (`npm start`) podłącza się do już działającego okna z
+  // `npm run browser` zamiast startować własną przeglądarkę. Dzięki temu
+  // sesja Shopera (cookie sesyjne w pamięci) żyje i NIE ma powtórnego 2FA.
+  cdpPort: Number(process.env.CDP_PORT ?? 9222),
+  cdpUrl: process.env.CDP_URL ?? `http://127.0.0.1:${process.env.CDP_PORT ?? 9222}`,
+
   // Claude
   model: process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5",
 
