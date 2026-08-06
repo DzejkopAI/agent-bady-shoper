@@ -1,43 +1,29 @@
 // ─────────────────────────────────────────────────────────────
 //  ORKIESTRATOR — spina wszystko w pętlę.
-//  Deterministyczny przepływ; Claude wywoływany tylko w brain.*
+//  Ręce: bady.pl = przeglądarka (publiczne, headless), Shoper = REST API.
+//  Mózg (brain.*) = Claude. Przepływ deterministyczny.
 // ─────────────────────────────────────────────────────────────
 import { chromium } from "playwright";
-import type { Browser, BrowserContext } from "playwright";
 import { CFG, productCode } from "./config.js";
 import { getNowosciUrls, scrapeProduct, downloadImages } from "./scrape.js";
 import { writeListing, writeImageTexts, mapCategory } from "./brain.js";
-import { login, productExists, addProduct, fillGalleryDescriptions } from "./panel.js";
+import { testConnection, productExists, createProduct, addImages } from "./shoper.js";
 
 async function main() {
-  // Podłącz się do TRWAŁEGO okna z `npm run browser` (CDP). Tam żyje sesja
-  // Shopera po jednorazowym 2FA — nie startujemy własnej przeglądarki, więc
-  // nie ma powtórnego logowania/2FA.
-  let browser: Browser;
-  try {
-    browser = await chromium.connectOverCDP(CFG.cdpUrl);
-  } catch {
-    console.error(
-      `✗ Nie mogę podłączyć się do przeglądarki (${CFG.cdpUrl}).\n` +
-        "  Najpierw uruchom w osobnym terminalu: `npm run browser`, zaloguj się (raz, z 2FA)\n" +
-        "  i zostaw okno otwarte. Potem odpal `npm start` ponownie."
-    );
+  // Shoper — sprawdź API zanim ruszymy scraping (szybki fail przy złym tokenie).
+  if (!CFG.apiBaseUrl || (!CFG.apiToken && !(CFG.apiLogin && CFG.apiPassword))) {
+    console.error("✗ Brak konfiguracji Shoper API — uzupełnij w .env: SHOPER_API_BASE_URL i SHOPER_API_TOKEN.");
     process.exit(1);
   }
+  console.log("Shoper API:", await testConnection());
 
-  const context: BrowserContext = browser.contexts()[0] ?? (await browser.newContext());
-  const page = context.pages()[0] ?? (await context.newPage());
-
-  // Shim dla tsx/esbuild: `keepNames` owija nazwane funkcje wewnątrz
-  // page.evaluate w wywołanie __name(...), którego nie ma w przeglądarce.
-  // Wstrzykujemy trywialny odpowiednik (forma stringa — esbuild go nie ruszy)
-  // na każdą nawigację.
+  // bady.pl to publiczny sklep — zwykła przeglądarka headless, bez profilu/2FA/CDP.
+  const browser = await chromium.launch({ headless: true });
+  const page = await browser.newContext().then((c) => c.newPage());
+  // Shim tsx/esbuild: nazwane funkcje w page.evaluate są owijane w __name.
   await page.addInitScript("globalThis.__name = globalThis.__name || ((fn) => fn);");
 
   try {
-    await login(page);
-    console.log("✓ Zalogowano do panelu");
-
     const urls = await getNowosciUrls(page, CFG.nowosciUrl);
     console.log(`Nowości na bady.pl: ${urls.length}`);
 
@@ -45,17 +31,15 @@ async function main() {
     for (const url of urls) {
       if (added >= CFG.maxProducts) break;
 
-      // Izolacja per produkt — błąd jednego (np. combo kategorii) NIE ubija
-      // całego nocnego runu; logujemy i idziemy dalej.
+      // Izolacja per produkt — błąd jednego nie ubija całego nocnego runu.
       try {
-        // 1) SCRAPE (deterministyczne)
+        // 1) SCRAPE bady.pl (przeglądarka)
         const product = await scrapeProduct(page, url);
         if (!product.name || !product.articleNo) continue;
 
-        // 2) DEDUP (reguła 2) — pomiń, jeśli już w sklepie (po kodzie `BD <nr>`,
-        //    z dopełnieniem bazy zerami do 4 cyfr — jak w sklepie).
+        // 2) DEDUP (reguła 2) — po kodzie `BD <nr>` (padding), przez API (dokładnie).
         const code = productCode(product.articleNo);
-        if (await productExists(page, code)) {
+        if (await productExists(code)) {
           console.log(`↷ pomijam (jest w sklepie): ${code} — ${product.name}`);
           continue;
         }
@@ -72,18 +56,16 @@ async function main() {
         const imageCopies = await writeImageTexts(product, images);
         const category = await mapCategory(product);
 
-        // 5) DODAJ do panelu jako NIEAKTYWNY (reguły 3,4,7,8,9)
-        const id = await addProduct(page, product, copy, category, images);
-        console.log(`✓ dodano ID ${id}: ${product.name}  [${category}]`);
+        // 5) UTWÓRZ w Shoperze jako NIEAKTYWNY (reguły 3,4,7,8,9) — API
+        const id = await createProduct(product, copy, category);
+        console.log(`✓ utworzono ID ${id}: ${product.name}  [${category}]`);
 
-        // 6) OPISY ZDJĘĆ (SEO + dostępność) w galerii — best-effort,
-        //    nie przerywa runu jeśli coś w galerii się nie zgadza.
-        //    Nawigacja po KODZIE (deep-link do edycji odbija na listę).
+        // 6) ZDJĘCIA + OPISY (SEO=name, dostępność=description) — API
         try {
-          await fillGalleryDescriptions(page, code, imageCopies);
-          console.log(`  ✓ opisy ${imageCopies.length} zdjęć uzupełnione`);
+          const n = await addImages(id, images, imageCopies);
+          console.log(`  ✓ ${n} zdjęć z opisami dodane`);
         } catch (e) {
-          console.warn(`  ! opisy zdjęć pominięte (${(e as Error).message}) — produkt i tak dodany`);
+          console.warn(`  ! zdjęcia pominięte (${(e as Error).message}) — produkt i tak utworzony`);
         }
 
         added++;
@@ -95,9 +77,7 @@ async function main() {
 
     console.log(`\nGotowe. Dodano ${added} produktów (nieaktywnych, do weryfikacji).`);
   } finally {
-    // NIE zamykamy okna — należy do `npm run browser` i ma żyć dalej.
-    // Nie wołamy browser.close() (mogłoby zamknąć okno); po prostu kończymy
-    // proces, co rozłącza połączenie CDP bez zabijania przeglądarki.
+    await browser.close();
   }
 }
 

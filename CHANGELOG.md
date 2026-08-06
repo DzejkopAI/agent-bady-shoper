@@ -3,6 +3,17 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 0.3.0 — 2026-08-06
+- **PIVOT: „ręce" po stronie sklepu przez Shoper REST API** zamiast klikania panelu. Determinizm, koniec z SPA/2FA/CDP/selektorami. `scrape.ts` i `brain.ts` bez zmian; `panel.ts`/`browser.ts` zostają jako legacy/referencja.
+- Nowy `src/shoper.ts`: auth Bearer (token z `.env`, fallback login+hasło → `/webapi/rest/auth`), retry/backoff (429/5xx/sieć), `testConnection`, `productExists`, `resolveCategoryId`, `createProduct`, `addImages`, `deleteProduct`.
+- **Dedup dokładny:** `GET /products?filters={"stock.code":"<kod>"}` — trafia w jeden produkt o dokładnym kodzie (zero over-matchu wariantów) i od razu daje `product_id`.
+- **Tworzenie NIEAKTYWNE:** `POST /products` z `translations.pl_PL.active=0` (aktywność produktu jest w translacji; `stock.active` bazowego nie da się wyłączyć — komunikat API). Producent stały `producer_id=1`.
+- **Zdjęcia + opisy:** `POST /product-images` z `content`=base64 (z `downloadImages`), `translations.pl_PL.name`=Opis (SEO)/alt, `description`=Opis (dostępność).
+- **Kategorie:** mapa nazwa→id z `GET /categories` (cache). Gdy mapowanie nie trafi (np. „Kubki" nie istnieje w sklepie) → **fallback „Pozostałe"** (API wymaga `category_id`) + ostrzeżenie; produkt i tak nieaktywny.
+- `index.ts` przełączony na API; przeglądarka (headless, bez profilu/2FA) już tylko do scrapingu publicznego bady.pl. **Nocne zadanie nie wymaga okna CDP.**
+- Konfiguracja w `.env`: `SHOPER_API_BASE_URL`, `SHOPER_API_TOKEN` (+ `SHOPER_API_CLIENT_ID`, `SHOPER_FALLBACK_CATEGORY`, `SHOPER_PRODUCER_ID`). Token = ten sam co PIM (scope: read+create+update; **brak delete**).
+- Uwaga: kategoria „Kubki" nie istnieje w sklepie — do poprawienia mapowanie w `config.ts` albo utworzyć kategorię.
+
 ## 0.2.1 — 2026-08-06
 - **Kod produktu: dopełnianie bazy numeru zerami do 4 cyfr** — sklep zapisuje 3-cyfrowe numery bady z zerem z przodu (bady `122-03` → `BD 0122-03`). Nowy `productCode()` w `config.ts` używany w dedupie i przy wpisie `#code` — naprawia fałszywe „nowe" i duplikaty wariantów (kieliszki).
 - **Izolacja błędów per produkt** — cała obróbka jednego produktu w `try/catch`; wyjątek (np. combo kategorii „Kubki") loguje się i przechodzi do następnego, zamiast ubijać cały nocny run.
