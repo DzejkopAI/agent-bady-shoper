@@ -8,6 +8,17 @@ import type { GeneratedCopy, ImageCopy, ProductImage, ScrapedProduct } from "./t
 
 const claude = new Anthropic(); // czyta ANTHROPIC_API_KEY z env
 
+// Wykryj typ obrazu z bajtów (magic bytes) — bady miewa .jpg ORAZ .png,
+// a Anthropic odrzuca niezgodność media_type z realną zawartością.
+type ImgType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+function imageMediaType(buf: Buffer): ImgType {
+  if (buf.length > 3 && buf[0] === 0x89 && buf[1] === 0x50) return "image/png";
+  if (buf.length > 2 && buf[0] === 0xff && buf[1] === 0xd8) return "image/jpeg";
+  if (buf.length > 3 && buf[0] === 0x47 && buf[1] === 0x49) return "image/gif";
+  if (buf.length > 12 && buf.slice(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return "image/jpeg";
+}
+
 // Pomocnik: wymuszamy na Claude wywołanie narzędzia i zwracamy jego argumenty
 // (to najpewniejszy sposób na ustrukturyzowany, walidowalny wynik).
 async function structured<T>(opts: {
@@ -86,7 +97,7 @@ export async function writeImageTexts(p: ScrapedProduct, images: ProductImage[])
     content.push({ type: "text", text: `Zdjęcie ${idx + 1}:` });
     content.push({
       type: "image",
-      source: { type: "base64", media_type: "image/jpeg", data: img.buffer.toString("base64") },
+      source: { type: "base64", media_type: imageMediaType(img.buffer), data: img.buffer.toString("base64") },
     });
   });
 

@@ -3,6 +3,11 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 1.0.2 — 2026-08-18
+- **Fix: zdjęcia `.png` (nie tylko `.jpg`)** — `scrape.ts` budował adres dużego zdjęcia na sztywno z `.jpg`, a bady miewa `.png` → pobranie 404 → produkt pomijany jako „brak zdjęć" (i nic nie trafiało do sklepu, bez błędu w Schedulerze). Teraz bierzemy realne `src` z zachowaniem rozszerzenia (preferuj `fotob`, fallback z `fotom/fotos`; dodatkowe z `foto_add`).
+- **Fix: media_type obrazu do Claude** — `brain.ts` wysyłał wizję zawsze jako `image/jpeg`; PNG powodował 400 z Anthropic. Wykrywamy typ z bajtów (magic bytes: png/jpeg/gif/webp).
+- Potwierdzone na żywo: dodane 5 nowości (m.in. „Magnes Warszawa z zawieszką", poliresynowe) + mail powiadomienia.
+
 ## 1.0.1 — 2026-08-06
 - **EAN scrapowany i czyszczony** — bady podaje EAN ze spacjami („590 17208 2152 2"); `scrape.ts` czyści do samych cyfr (`5901720821522`), dzięki czemu `POST /products` ustawia `ean` poprawnie. (Produkty z ery browsera nie miały EAN — panel.ts go nie wpisywał.)
 - **Opisy z większym polotem** — prompt `writeListing` w `brain.ts` podkręcony: dowcip, gra słów, hook w pierwszym zdaniu, żartobliwe punkty — przy zachowaniu struktury `<p>`+`<ul>` i SEO (bez emoji/wykrzykników na siłę).

@@ -73,21 +73,28 @@ export async function scrapeProduct(page: Page, url: string): Promise<ScrapedPro
       }
     });
 
-    // Zdjęcia: z <img> zbieramy id produktu i id-ki zdjęć dodatkowych,
-    // a potem budujemy adresy w wariancie DUŻYM (potwierdzone w PoC).
-    const srcs = Array.from(document.querySelectorAll("img"))
-      .map((i) => (i as HTMLImageElement).src)
-      .filter((s) => /files\/(fotos|fotob|fotom|foto_add)/i.test(s));
-
-    const productId = (srcs.find((s) => /product-(\d+)/.test(s)) || "").match(/product-(\d+)/)?.[1];
-    const addIds = Array.from(
-      new Set(srcs.map((s) => s.match(/foto_add-(\d+)/)?.[1]).filter(Boolean) as string[])
-    );
-
+    // Zdjęcia: bierzemy realne src z <img> w wariancie DUŻYM, zachowując
+    // PRAWDZIWE rozszerzenie — bady miewa i .jpg, i .png (na sztywno .jpg dawało 404).
     const base = "https://www.bady.pl/files";
+    const raw = Array.from(document.querySelectorAll("img"))
+      .map((i) => (i as HTMLImageElement).src.split("?")[0]) // bez ?ts=...
+      .filter((s) => /\/files\/(foto[sbm]|foto_add(_big)?)\//i.test(s));
+
     const imageUrls: string[] = [];
-    if (productId) imageUrls.push(`${base}/fotob/product-${productId}.jpg`); // główne (big)
-    for (const id of addIds) imageUrls.push(`${base}/foto_add_big/foto_add-${id}.jpg`); // dodatkowe (big)
+    // Główne: preferuj istniejący duży fotob; inaczej zbuduj z fotom/fotos (to samo rozszerzenie).
+    let mainImg = raw.find((s) => /\/fotob\/product-\d+\.\w+$/i.test(s));
+    if (!mainImg) {
+      const alt = raw.find((s) => /\/foto[ms]\/product-\d+\.\w+$/i.test(s));
+      if (alt) mainImg = alt.replace(/\/foto[ms]\//i, "/fotob/");
+    }
+    if (mainImg) imageUrls.push(mainImg);
+    // Dodatkowe: foto_add-<id>.<ext> → wariant DUŻY foto_add_big/foto_add-<id>.<ext>.
+    const adds = new Set<string>();
+    for (const s of raw) {
+      const m = s.match(/foto_add-(\d+)\.(\w+)/i);
+      if (m) adds.add(`${base}/foto_add_big/foto_add-${m[1]}.${m[2]}`);
+    }
+    imageUrls.push(...adds);
 
     return {
       name,
