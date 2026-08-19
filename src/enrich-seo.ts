@@ -52,45 +52,64 @@ async function fetchBytes(unic: string): Promise<Buffer | null> {
 }
 
 async function main() {
-  if (!CODES.length) { console.error("Podaj --codes \"BD ...,BD ...\""); process.exit(1); }
-  console.log(`${DRY ? "[DRY] " : ""}Enrich SEO/dostępność dla ${CODES.length} produktów.\n`);
-  let updated = 0, skipped = 0;
+  const CONC = Number(argVal("--conc") || 4);
+  // --all-bd: zbierz wszystkie kody BD ze sklepu (stronicowanie)
+  if (process.argv.includes("--all-bd")) {
+    let page = 1;
+    while (true) {
+      const d = await api(`/products?limit=50&page=${page}`);
+      const lst = d.list || [];
+      for (const p of lst) { const c = p.code || p.stock?.code || ""; if (/^BD\s/i.test(c)) CODES.push(c); }
+      if (page >= Number(d.pages || 1) || !lst.length) break; page++;
+    }
+    console.log(`--all-bd: zebrano ${CODES.length} produktów BD`);
+  }
+  if (!CODES.length) { console.error("Podaj --codes / --from-dodane / --all-bd"); process.exit(1); }
+  console.log(`${DRY ? "[DRY] " : ""}Enrich SEO/dostępność dla ${CODES.length} produktów (conc=${CONC}).\n`);
+  let updated = 0, done = 0, prodUpd = 0, prodSkip = 0, errs = 0;
 
-  for (const code of CODES) {
+  function flush(buf: string[]) {
+    if (++done % 50 === 0) buf.push(`  … ${done}/${CODES.length} (opisano ${updated} zdj, produktów ${prodUpd})`);
+    if (buf.length) console.log(buf.join("\n"));
+  }
+
+  async function processOne(code: string) {
+    const buf: string[] = [];
     try {
       const pr = await api(`/products?limit=1&filters=${encodeURIComponent(JSON.stringify({ "stock.code": code }))}`);
       const prod = pr.list?.[0];
-      if (!prod) { console.log(`✗ ${code}: nie ma w sklepie`); continue; }
+      if (!prod) { buf.push(`✗ ${code}: nie ma w sklepie`); return flush(buf); }
       const shopName = prod.translations?.[CFG.lang]?.name || prod.name || code;
       const gi = await api(`/product-images?filters=${encodeURIComponent(JSON.stringify({ product_id: prod.product_id }))}&limit=60`);
       const list = (gi.list || []).sort((a: any, b: any) => Number(a.order) - Number(b.order));
-
-      // które wymagają uzupełnienia
       const need = list.filter((x: any) => isJunk(x.name || x.translations?.[CFG.lang]?.name || "", x.translations?.[CFG.lang]?.description || ""));
-      if (!need.length) { console.log(`• ${code} — ${shopName}: wszystkie ${list.length} zdj mają opisy, pomijam`); continue; }
+      if (!need.length) { prodSkip++; return flush(buf); } // cicho — miały opisy
 
-      // pobierz bajty
       const imgs: (ProductImage & { gfx: string })[] = [];
       for (const x of need) {
-        const buf = await fetchBytes(String(x.unic_name));
-        if (buf) imgs.push({ url: "", filename: `${x.gfx_id}.jpg`, buffer: buf, gfx: String(x.gfx_id) });
-        else console.log(`  ! ${code} gfx${x.gfx_id}: nie pobrałem bajtów — pomijam to zdjęcie`);
+        const b = await fetchBytes(String(x.unic_name));
+        if (b) imgs.push({ url: "", filename: `${x.gfx_id}.jpg`, buffer: b, gfx: String(x.gfx_id) });
       }
-      if (!imgs.length) { console.log(`✗ ${code}: brak bajtów zdjęć`); continue; }
+      if (!imgs.length) { buf.push(`! ${code}: brak bajtów zdjęć`); return flush(buf); }
 
-      // wizja: SEO + dostępność (dla spójności — wszystkie razem)
       const texts = (await writeImageTexts({ name: shopName } as ScrapedProduct, imgs)) ?? [];
-      console.log(`${code} — ${shopName}: uzupełniam ${imgs.length}/${list.length} zdj`);
+      let n = 0;
       for (let i = 0; i < imgs.length; i++) {
         const t = texts[i] || { seo: "", alt: "" };
-        console.log(`  ord? gfx${imgs[i].gfx}: SEO="${(t.seo || "").slice(0, 50)}" | dost="${(t.alt || "").slice(0, 40)}"`);
         if (!DRY && (t.seo || t.alt)) {
           await api(`/product-images/${imgs[i].gfx}`, "PUT", { translations: { [CFG.lang]: { name: t.seo || "", description: t.alt || "" } } });
-          updated++;
+          updated++; n++;
         }
       }
-    } catch (e) { console.log(`✗ ${code}: BŁĄD ${(e as Error).message.slice(0, 80)}`); }
+      if (n) prodUpd++;
+      buf.push(`✓ ${code} — ${shopName.slice(0, 40)}: +${n} opis`);
+    } catch (e) { errs++; buf.push(`✗ ${code}: BŁĄD ${(e as Error).message.slice(0, 60)}`); }
+    return flush(buf);
   }
-  console.log(`\n${DRY ? "[DRY] " : ""}Zaktualizowanych zdjęć: ${updated}${skipped ? `, pominiętych: ${skipped}` : ""}`);
+
+  let idx = 0;
+  await Promise.all(Array.from({ length: CONC }, async () => { while (idx < CODES.length) await processOne(CODES[idx++]); }));
+
+  console.log(`\n${DRY ? "[DRY] " : ""}Gotowe. Produktów: ${CODES.length} | z dodanymi opisami: ${prodUpd} | pominięte (miały opisy): ${prodSkip} | błędy: ${errs} | zaktualizowanych zdjęć: ${updated}`);
 }
 main().then(() => process.exit(0)).catch((e) => { console.error("BLAD:", e.message); process.exit(1); });
