@@ -76,9 +76,12 @@ export async function scrapeProduct(page: Page, url: string): Promise<ScrapedPro
     // Zdjęcia: bierzemy realne src z <img> w wariancie DUŻYM, zachowując
     // PRAWDZIWE rozszerzenie — bady miewa i .jpg, i .png (na sztywno .jpg dawało 404).
     const base = "https://www.bady.pl/files";
+    // UWAGA: zdjęcia dodatkowe bywają serwowane jako foto_add_small/medium
+    // (strony /produkt/ na bady) — łapiemy każdy wariant foto_add*, a big
+    // budujemy niżej. Bez tego braliśmy tylko główne zdjęcie.
     const raw = Array.from(document.querySelectorAll("img"))
       .map((i) => (i as HTMLImageElement).src.split("?")[0]) // bez ?ts=...
-      .filter((s) => /\/files\/(foto[sbm]|foto_add(_big)?)\//i.test(s));
+      .filter((s) => /\/files\/(foto[sbm]|foto_add[a-z_]*)\//i.test(s));
 
     const imageUrls: string[] = [];
     // Główne: preferuj istniejący duży fotob; inaczej zbuduj z fotom/fotos (to samo rozszerzenie).

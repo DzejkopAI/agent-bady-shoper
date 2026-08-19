@@ -37,7 +37,8 @@ nieużywane przez `index.ts`. Sekcja „Selektory panelu" niżej dotyczy tylko t
   **`content`=base64** obrazu, `translations.pl_PL:{name=Opis(SEO)/alt, description=Opis(dostępność)}`.
 - **Kategorie:** mapa nazwa→id z `GET /categories` (cache). Fallback „Pozostałe" (id 5), gdy nazwa nie istnieje.
   „Magnesy"=6. **„Kubki" NIE istnieje** — do poprawy mapowanie/utworzyć kategorię.
-- **Scope tokenu:** read + create + update; **BRAK delete** (`DELETE` → 403). `/producers` też poza scope → stały `producer_id=1`.
+- **Scope tokenu:** read + create + update; `DELETE /products` → 403 (BRAK), ale **`DELETE /product-images/{gfx_id}` DZIAŁA → 200** (2026-08-19). `PUT /product-images/{gfx_id}` (aktualizacja opisów) też działa. `/producers` poza scope → stały `producer_id=1`.
+- **Backfill zdjęć (jednorazowy):** `src/backfill.ts` (dry-run/raport zakresu) + `src/backfill-apply.ts` (wizja `pickImagesToAdd` → upload brakujących, `main=0`, safeguard na serie ≥8 zdjęć) + `src/enrich-seo.ts` (uzupełnia Opis SEO+dostępność na zdjęciach z nazwą pliku/hash). Do bady TYLKO Playwright, łagodnie (WAF banuje burst).
 
 ## Reguły produkcyjne (w `src/config.ts`)
 1. Źródło: tylko `https://www.bady.pl/nowosci/`.

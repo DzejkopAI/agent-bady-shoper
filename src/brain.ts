@@ -123,6 +123,76 @@ export async function writeImageTexts(p: ScrapedProduct, images: ProductImage[])
   return items;
 }
 
+// ── Backfill: wizyjna selekcja zdjęć do dodania ───────────────
+// Claude ogląda zdjęcia JUŻ w sklepie + kandydatów z bady i decyduje per
+// kandydat: dodać czy pominąć (duplikat / tył produktu / brzydkie/zbędne).
+export interface ImgDecision {
+  add: boolean;
+  reason: string; // krótkie uzasadnienie po polsku
+}
+
+export async function pickImagesToAdd(
+  productName: string,
+  shopImages: Buffer[],
+  badyImages: Buffer[]
+): Promise<ImgDecision[]> {
+  if (badyImages.length === 0) return [];
+
+  const system = [
+    "Jesteś redaktorem zdjęć w sklepie z pamiątkami (pamiatkizpolski.pl).",
+    "Masz zdjęcia produktu JUŻ w sklepie oraz KANDYDATÓW z hurtowni.",
+    "Dla KAŻDEGO kandydata zdecyduj, czy dodać go do sklepu.",
+    "POMIŃ (add=false), gdy kandydat:",
+    "- to TO SAMO ujęcie/ten sam produkt co zdjęcie już w sklepie — także jeśli różni się TYLKO tłem, KOLOREM TŁA, oświetleniem, rozdzielczością lub drobnym kadrem (to wciąż duplikat, nic nie wnosi),",
+    "- pokazuje BRZYDKI, techniczny tył/spód: tył magnesu z magnesem, zapięcie/mechanizm przypinki, gołą teksturowaną metalową spodnią stronę, naklejkę/napis producenta — to odrzucamy,",
+    "- jest niskiej jakości, rozmyty albo zbędny (kolejne prawie identyczne ujęcie).",
+    "DODAJ (add=true), gdy kandydat wnosi realnie COŚ NOWEGO:",
+    "- inny, faktycznie odmienny kąt/perspektywa (z boku, pod kątem, produkt w użyciu, ładny detal),",
+    "- ŁADNY rewers/druga strona z wartością wizualną: mapa, grafika, drugi motyw, wzór — TAKIE chcemy (NIE myl z brzydkim technicznym tyłem),",
+    "- realnie inny WARIANT PRODUKTU (inny przedmiot, nie samo inne tło).",
+    "Reguła kluczowa: różnica tylko w tle/kolorze tła/rozdzielczości = DUPLIKAT (pomiń). Ładny rewers z grafiką/mapą = DODAJ. Brzydki tył techniczny (magnes, zapięcie) = POMIŃ.",
+    "Zwróć tablicę decyzji w TEJ SAMEJ kolejności co kandydaci; 'reason' krótko po polsku.",
+  ].join(" ");
+
+  const content: Anthropic.MessageParam["content"] = [
+    { type: "text", text: `Produkt: ${productName}.` },
+  ];
+  if (shopImages.length) {
+    content.push({ type: "text", text: `Zdjęcia JUŻ w sklepie (${shopImages.length}):` });
+    for (const b of shopImages) {
+      content.push({ type: "image", source: { type: "base64", media_type: imageMediaType(b), data: b.toString("base64") } });
+    }
+  } else {
+    content.push({ type: "text", text: "Sklep NIE ma jeszcze żadnego zdjęcia tego produktu." });
+  }
+  content.push({ type: "text", text: `KANDYDACI z hurtowni (${badyImages.length}), po kolei:` });
+  badyImages.forEach((b, i) => {
+    content.push({ type: "text", text: `Kandydat ${i + 1}:` });
+    content.push({ type: "image", source: { type: "base64", media_type: imageMediaType(b), data: b.toString("base64") } });
+  });
+
+  const { decisions } = await structured<{ decisions: ImgDecision[] }>({
+    system,
+    content,
+    toolName: "decyzje_zdjec",
+    schema: {
+      type: "object",
+      properties: {
+        decisions: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { add: { type: "boolean" }, reason: { type: "string" } },
+            required: ["add", "reason"],
+          },
+        },
+      },
+      required: ["decisions"],
+    },
+  });
+  return decisions;
+}
+
 // ── Zadanie 3: kategoria (najpierw mapa, potem Claude) ────────
 export async function mapCategory(p: ScrapedProduct): Promise<string> {
   const hay = `${p.name} ${p.descriptionRaw}`.toLowerCase();

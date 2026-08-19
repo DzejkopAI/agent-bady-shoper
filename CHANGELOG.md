@@ -3,6 +3,15 @@
 Źródło prawdy = to repo (`DzejkopAI/agent-bady-shoper`). Strona w Notion jest lustrem.
 Format wpisu: `## <wersja> — <RRRR-MM-DD>`. Konwencja: patch per ukończony krok.
 
+## 1.1.0 — 2026-08-19
+- **Backfill zdjęć (jednorazowe uzupełnienie istniejących produktów).** Dla produktów już w sklepie (kody `BD`), które na bady mają WIĘCEJ zdjęć niż u nas, dociągamy brakujące ujęcia z opisami:
+  - `src/backfill.ts` — dry-run/raport zakresu (sklep vs bady, po WSZYSTKICH produktach BD). Do bady **tylko Playwright, łagodnie** (WAF banuje IP przy serii gołych `fetch`/dużej równoległości).
+  - `src/backfill-apply.ts` — wizja `pickImagesToAdd` decyduje per zdjęcie (pomija duplikaty i **warianty tła/koloru/rozdzielczości**; dopuszcza **ładne rewersy** typu mapa/grafika; odrzuca brzydki techniczny tył: magnes, zapięcie przypinki, spód). Upload `POST /product-images` z Opisem SEO+dostępności, `main=0`, `order` po istniejących.
+  - **Safeguard na serie:** strony‑serie bady grupują RODZEŃSTWO (inne wzory/kolory/produkty) w jednej galerii → pomijamy produkt gdy bady ma ≥8 zdjęć, twardy limit 4 dodane/produkt. Deterministyczny bezpiecznik (add→skip) na sformułowania odrzucenia; UWAGA: w JS `\b` nie działa z „ł/ó", w regexach podłańcuchy.
+- **`src/enrich-seo.ts`** — uzupełnia Opis (SEO)=name + Opis (dostępność)=description na zdjęciach mających zamiast opisu nazwę pliku/hash/pusto (wizja Claude, `PUT /product-images/{gfx_id}`; nie nadpisuje realnych opisów). Tryby `--codes` i `--from-dodane`.
+- **Scope tokenu — sprostowanie:** `DELETE /product-images/{gfx_id}` **działa** (200), `PUT` też — można sprzątać/aktualizować zdjęcia przez API (tylko `DELETE /products` nadal 403).
+- `brain.ts`: reguły wizji doprecyzowane (warianty tła OUT, ładne rewersy IN). `scrape.ts`: `foto_add` łapie wszystkie warianty dodatkowych zdjęć.
+
 ## 1.0.2 — 2026-08-18
 - **Fix: zdjęcia `.png` (nie tylko `.jpg`)** — `scrape.ts` budował adres dużego zdjęcia na sztywno z `.jpg`, a bady miewa `.png` → pobranie 404 → produkt pomijany jako „brak zdjęć" (i nic nie trafiało do sklepu, bez błędu w Schedulerze). Teraz bierzemy realne `src` z zachowaniem rozszerzenia (preferuj `fotob`, fallback z `fotom/fotos`; dodatkowe z `foto_add`).
 - **Fix: media_type obrazu do Claude** — `brain.ts` wysyłał wizję zawsze jako `image/jpeg`; PNG powodował 400 z Anthropic. Wykrywamy typ z bajtów (magic bytes: png/jpeg/gif/webp).
