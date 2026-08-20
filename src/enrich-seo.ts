@@ -53,16 +53,24 @@ async function fetchBytes(unic: string): Promise<Buffer | null> {
 
 async function main() {
   const CONC = Number(argVal("--conc") || 4);
-  // --all-bd: zbierz wszystkie kody BD ze sklepu (stronicowanie)
-  if (process.argv.includes("--all-bd")) {
+  // --all-bd / --non-bd / --all: zbierz kody ze sklepu (stronicowanie)
+  const ALL_BD = process.argv.includes("--all-bd");
+  const NON_BD = process.argv.includes("--non-bd");
+  const ALL = process.argv.includes("--all");
+  if (ALL_BD || NON_BD || ALL) {
     let page = 1;
     while (true) {
       const d = await api(`/products?limit=50&page=${page}`);
       const lst = d.list || [];
-      for (const p of lst) { const c = p.code || p.stock?.code || ""; if (/^BD\s/i.test(c)) CODES.push(c); }
+      for (const p of lst) {
+        const c = p.code || p.stock?.code || "";
+        if (!c) continue;
+        const isBd = /^BD\s/i.test(c);
+        if (ALL || (ALL_BD && isBd) || (NON_BD && !isBd)) CODES.push(c);
+      }
       if (page >= Number(d.pages || 1) || !lst.length) break; page++;
     }
-    console.log(`--all-bd: zebrano ${CODES.length} produktów BD`);
+    console.log(`${ALL ? "--all" : ALL_BD ? "--all-bd" : "--non-bd"}: zebrano ${CODES.length} produktów`);
   }
   if (!CODES.length) { console.error("Podaj --codes / --from-dodane / --all-bd"); process.exit(1); }
   console.log(`${DRY ? "[DRY] " : ""}Enrich SEO/dostępność dla ${CODES.length} produktów (conc=${CONC}).\n`);
