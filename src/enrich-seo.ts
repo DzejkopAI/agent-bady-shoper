@@ -74,7 +74,7 @@ async function main() {
   }
   if (!CODES.length) { console.error("Podaj --codes / --from-dodane / --all-bd"); process.exit(1); }
   console.log(`${DRY ? "[DRY] " : ""}Enrich SEO/dostępność dla ${CODES.length} produktów (conc=${CONC}).\n`);
-  let updated = 0, done = 0, prodUpd = 0, prodSkip = 0, errs = 0;
+  let updated = 0, done = 0, prodUpd = 0, prodSkip = 0, errs = 0, creditOut = false;
 
   function flush(buf: string[]) {
     if (++done % 50 === 0) buf.push(`  … ${done}/${CODES.length} (opisano ${updated} zdj, produktów ${prodUpd})`);
@@ -111,12 +111,18 @@ async function main() {
       }
       if (n) prodUpd++;
       buf.push(`✓ ${code} — ${shopName.slice(0, 40)}: +${n} opis`);
-    } catch (e) { errs++; buf.push(`✗ ${code}: BŁĄD ${(e as Error).message.slice(0, 60)}`); }
+    } catch (e) {
+      errs++;
+      const msg = (e as Error).message || "";
+      if (/credit balance is too low/i.test(msg)) { creditOut = true; buf.push(`✗ ${code}: KREDYTY Anthropic wyczerpane — przerywam (doładuj i wznów)`); }
+      else buf.push(`✗ ${code}: BŁĄD ${msg.replace(/\s+/g, " ").slice(0, 120)}`);
+    }
     return flush(buf);
   }
 
   let idx = 0;
-  await Promise.all(Array.from({ length: CONC }, async () => { while (idx < CODES.length) await processOne(CODES[idx++]); }));
+  await Promise.all(Array.from({ length: CONC }, async () => { while (idx < CODES.length && !creditOut) await processOne(CODES[idx++]); }));
+  if (creditOut) console.log(`\n⚠ PRZERWANO: kredyty Anthropic wyczerpane. Doładuj i wznów tym samym poleceniem (idempotentnie dokończy resztę).`);
 
   console.log(`\n${DRY ? "[DRY] " : ""}Gotowe. Produktów: ${CODES.length} | z dodanymi opisami: ${prodUpd} | pominięte (miały opisy): ${prodSkip} | błędy: ${errs} | zaktualizowanych zdjęć: ${updated}`);
 }
